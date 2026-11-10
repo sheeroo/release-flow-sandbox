@@ -2,6 +2,12 @@ name: Release PR
 
 on:
   workflow_dispatch:
+    inputs:
+      source:
+        description: "Branch to merge into main (develop for a release, a hotfix branch for a hotfix)"
+        required: true
+        default: develop
+        type: string
   push:
     branches: [develop]
 
@@ -9,8 +15,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-pr
+  group: release-pr-${{ inputs.source || 'develop' }}
   cancel-in-progress: false
+
+env:
+  SOURCE: ${{ inputs.source || 'develop' }}
 
 jobs:
   open:
@@ -21,20 +30,31 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check the source branch
+        run: |
+          if [[ "$SOURCE" == "main" ]]; then
+            echo "Error: the source cannot be main itself."
+            exit 1
+          fi
+          if ! git rev-parse --verify --quiet "refs/remotes/origin/$SOURCE" >/dev/null; then
+            echo "Error: there is no branch named '$SOURCE'."
+            exit 1
+          fi
+
       # The range comes from the branches, not from the previous release PR,
       # so the first run and any hand-made merge into main need nothing special.
       - name: Build the description
         id: body
         run: |
-          COMMITS=$(git log --no-merges --reverse --format='- %s (%h)' origin/main..origin/develop)
+          COMMITS=$(git log --no-merges --reverse --format='- %s (%h)' "origin/main..origin/$SOURCE")
           if [[ -z "$COMMITS" ]]; then
-            echo "Nothing on develop that main does not already have."
+            echo "Nothing on $SOURCE that main does not already have."
             echo "empty=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           {
-            echo "Everything on \`develop\` that is not yet on \`main\`."
+            echo "Everything on \`$SOURCE\` that is not yet on \`main\`."
             echo
             echo "## Commits"
             echo
@@ -48,8 +68,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
-          TITLE="Merge Develop ($(date -u +%Y-%m-%d))"
-          EXISTING=$(gh pr list --base main --head develop --state open --json number --jq '.[0].number')
+          TITLE="Hotfix $SOURCE ($(date -u +%Y-%m-%d))"
+          if [[ "$SOURCE" == "develop" ]]; then
+            TITLE="Merge Develop ($(date -u +%Y-%m-%d))"
+          fi
+          EXISTING=$(gh pr list --base main --head "$SOURCE" --state open --json number --jq '.[0].number')
 
           # A push to develop only keeps an open release PR's commit list current. It
           # opens nothing, and leaves the title and auto-merge as a person set them.
@@ -66,10 +89,10 @@ jobs:
               -f title="$TITLE" -F body=@"$RUNNER_TEMP/body.md" --jq '.html_url'
             PR="$EXISTING"
           else
-            PR=$(gh pr create --base main --head develop --title "$TITLE" --body-file "$RUNNER_TEMP/body.md")
+            PR=$(gh pr create --base main --head "$SOURCE" --title "$TITLE" --body-file "$RUNNER_TEMP/body.md")
           fi
 
-          # A merge commit, never squash or rebase: those copy develop's commits
+          # A merge commit, never squash or rebase: those copy the source's commits
           # under new ids, and the next run would list every one of them again.
           gh pr merge "$PR" --auto --merge ||
             echo "::warning::Could not turn on auto-merge. Is it allowed in the repo settings?"
