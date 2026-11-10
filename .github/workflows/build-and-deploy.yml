@@ -1,0 +1,18 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [develop, main]
+    tags: ["v*"]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pretend to deploy
+        run: |
+          case "${{ github.ref_type }}/${{ github.ref_name }}" in
+            tag/*)        echo "Would deploy ${{ github.ref_name }} to prod" ;;
+            branch/main)  echo "Would deploy main to staging" ;;
+            *)            echo "Would deploy ${{ github.ref_name }} to dev" ;;
+          esac

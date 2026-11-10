@@ -1,0 +1,63 @@
+name: Release PR
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-pr
+  cancel-in-progress: false
+
+jobs:
+  open:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # The range comes from the branches, not from the previous release PR,
+      # so the first run and any hand-made merge into main need nothing special.
+      - name: Build the description
+        id: body
+        run: |
+          COMMITS=$(git log --no-merges --reverse --format='- %s (%h)' origin/main..origin/develop)
+          if [[ -z "$COMMITS" ]]; then
+            echo "Nothing on develop that main does not already have."
+            echo "empty=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          {
+            echo "Everything on \`develop\` that is not yet on \`main\`."
+            echo
+            echo "## Commits"
+            echo
+            echo "$COMMITS"
+          } > "$RUNNER_TEMP/body.md"
+          echo "empty=false" >> "$GITHUB_OUTPUT"
+
+      # A PR opened with GITHUB_TOKEN does not trigger CI, so this uses RELEASE_TOKEN.
+      - name: Open or update the release PR
+        if: steps.body.outputs.empty == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          TITLE="Merge Develop ($(date -u +%Y-%m-%d))"
+          EXISTING=$(gh pr list --base main --head develop --state open --json number --jq '.[0].number')
+
+          if [[ -n "$EXISTING" ]]; then
+            gh api -X PATCH "repos/${{ github.repository }}/pulls/$EXISTING" \
+              -f title="$TITLE" -F body=@"$RUNNER_TEMP/body.md" --jq '.html_url'
+            PR="$EXISTING"
+          else
+            PR=$(gh pr create --base main --head develop --title "$TITLE" --body-file "$RUNNER_TEMP/body.md")
+          fi
+
+          # A merge commit, never squash or rebase: those copy develop's commits
+          # under new ids, and the next run would list every one of them again.
+          gh pr merge "$PR" --auto --merge ||
+            echo "::warning::Could not turn on auto-merge. Is it allowed in the repo settings?"

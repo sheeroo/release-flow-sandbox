@@ -1,0 +1,42 @@
+name: Sync Develop
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-develop
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout develop
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN }}
+
+      # Fast-forward when develop has not moved since the release; otherwise
+      # (a hotfix straight into main, or new work on develop) merge main in.
+      - name: Bring develop up to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git merge-base --is-ancestor origin/main HEAD; then
+            echo "develop already has everything on main."
+            exit 0
+          fi
+
+          if ! git merge --ff-only origin/main && ! git merge --no-edit origin/main; then
+            echo "Error: main does not merge cleanly into develop. Merge it by hand."
+            exit 1
+          fi
+
+          git push origin develop

@@ -1,0 +1,71 @@
+name: Release Tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump"
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-tag
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      # A tag pushed with GITHUB_TOKEN does not trigger Build and Deploy, so this uses RELEASE_TOKEN.
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN }}
+
+      - name: Resolve the next version
+        id: version
+        run: |
+          LATEST=$(git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)
+          LATEST=${LATEST:-v0.0.0}
+
+          if git tag --points-at HEAD | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Error: main is already tagged as $(git tag --points-at HEAD | head -n 1). Merge something into main first."
+            exit 1
+          fi
+
+          IFS=. read -r MAJOR MINOR PATCH <<< "${LATEST#v}"
+          case "${{ inputs.bump }}" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+
+          echo "previous=$LATEST" >> "$GITHUB_OUTPUT"
+          echo "next=v$MAJOR.$MINOR.$PATCH" >> "$GITHUB_OUTPUT"
+          echo "$LATEST -> v$MAJOR.$MINOR.$PATCH"
+
+      - name: Push the tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.version.outputs.next }}" -m "Release ${{ steps.version.outputs.next }}"
+          git push origin "${{ steps.version.outputs.next }}"
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          gh release create "${{ steps.version.outputs.next }}" \
+            --title "${{ steps.version.outputs.next }}" \
+            --generate-notes \
+            --notes-start-tag "${{ steps.version.outputs.previous }}"
