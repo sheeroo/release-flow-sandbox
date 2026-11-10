@@ -1,13 +1,9 @@
 name: Release PR
 
+# The branch picked under "Use workflow from" is the one merged into main:
+# develop for a release, a hotfix branch for a hotfix.
 on:
   workflow_dispatch:
-    inputs:
-      source:
-        description: "Branch to merge into main (develop for a release, a hotfix branch for a hotfix)"
-        required: true
-        default: develop
-        type: string
   push:
     branches: [develop]
 
@@ -15,11 +11,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-pr-${{ inputs.source || 'develop' }}
+  group: release-pr-${{ github.ref_name }}
   cancel-in-progress: false
 
 env:
-  SOURCE: ${{ inputs.source || 'develop' }}
+  SOURCE: ${{ github.ref_name }}
 
 jobs:
   open:
