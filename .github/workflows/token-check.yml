@@ -1,0 +1,16 @@
+name: Token Check
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          echo "Token prefix: ${GH_TOKEN:0:11}"
+          gh api user --jq '"Token user: \(.login)"' || true
+          gh api -i -X POST repos/${{ github.repository }}/pulls -f head=develop -f base=main -f title="token check" 2>&1 \
+            | grep -iE '^HTTP|x-accepted-github-permissions|"message"|html_url' || true
