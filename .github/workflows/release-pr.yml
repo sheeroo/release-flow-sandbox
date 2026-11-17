@@ -71,7 +71,7 @@ jobs:
           EXISTING=$(gh pr list --base main --head "$SOURCE" --state open --json number --jq '.[0].number')
 
           # A push to develop only keeps an open release PR's commit list current. It
-          # opens nothing, and leaves the title and auto-merge as a person set them.
+          # opens nothing, and leaves the title as it is.
           if [[ "${{ github.event_name }}" == "push" ]]; then
             if [[ -n "$EXISTING" ]]; then
               gh api -X PATCH "repos/${{ github.repository }}/pulls/$EXISTING" \
@@ -83,12 +83,6 @@ jobs:
           if [[ -n "$EXISTING" ]]; then
             gh api -X PATCH "repos/${{ github.repository }}/pulls/$EXISTING" \
               -f title="$TITLE" -F body=@"$RUNNER_TEMP/body.md" --jq '.html_url'
-            PR="$EXISTING"
           else
-            PR=$(gh pr create --base main --head "$SOURCE" --title "$TITLE" --body-file "$RUNNER_TEMP/body.md")
+            gh pr create --base main --head "$SOURCE" --title "$TITLE" --body-file "$RUNNER_TEMP/body.md"
           fi
-
-          # A merge commit, never squash or rebase: those copy the source's commits
-          # under new ids, and the next run would list every one of them again.
-          gh pr merge "$PR" --auto --merge ||
-            echo "::warning::Could not turn on auto-merge. Is it allowed in the repo settings?"
