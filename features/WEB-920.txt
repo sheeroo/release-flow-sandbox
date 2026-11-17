@@ -1,0 +1,1 @@
+WEB-920: Add the manual test feature A
