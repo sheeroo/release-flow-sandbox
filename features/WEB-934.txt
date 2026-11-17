@@ -1,0 +1,1 @@
+WEB-934: Fix a bug in feature D
